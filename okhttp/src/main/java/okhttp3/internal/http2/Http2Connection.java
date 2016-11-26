@@ -77,7 +77,8 @@ public final class Http2Connection implements Closeable {
    * User code to run in response to incoming streams or settings. Calls to this are always invoked
    * on {@link #executor}.
    */
-  final Listener listener;
+  final Listener connectionListener;
+  final Http2Stream.Listener streamListener;
   final Map<Integer, Http2Stream> streams = new LinkedHashMap<>();
   final String hostname;
   int lastGoodStreamId;
@@ -125,7 +126,8 @@ public final class Http2Connection implements Closeable {
   Http2Connection(Builder builder) {
     pushObserver = builder.pushObserver;
     client = builder.client;
-    listener = builder.listener;
+    connectionListener = builder.connectionListener;
+    streamListener = builder.streamListener;
     // http://tools.ietf.org/html/draft-ietf-httpbis-http2-17#section-5.1.1
     nextStreamId = builder.client ? 1 : 2;
     if (builder.client) {
@@ -220,7 +222,8 @@ public final class Http2Connection implements Closeable {
         }
         streamId = nextStreamId;
         nextStreamId += 2;
-        stream = new Http2Stream(streamId, this, outFinished, inFinished, requestHeaders);
+        stream = new Http2Stream(
+            streamId, this, outFinished, inFinished, requestHeaders, streamListener);
         flushHeaders = !out || bytesLeftInWriteWindow == 0L || stream.bytesLeftInWriteWindow == 0L;
         if (stream.isOpen()) {
           streams.put(streamId, stream);
@@ -505,7 +508,8 @@ public final class Http2Connection implements Closeable {
     String hostname;
     BufferedSource source;
     BufferedSink sink;
-    Listener listener = Listener.REFUSE_INCOMING_STREAMS;
+    Listener connectionListener = Listener.REFUSE_INCOMING_STREAMS;
+    Http2Stream.Listener streamListener = Http2Stream.Listener.NOOP_LISTENER;
     PushObserver pushObserver = PushObserver.CANCEL;
     boolean client;
 
@@ -531,8 +535,13 @@ public final class Http2Connection implements Closeable {
       return this;
     }
 
-    public Builder listener(Listener listener) {
-      this.listener = listener;
+    public Builder connectionListener(Listener listener) {
+      this.connectionListener = listener;
+      return this;
+    }
+
+    public Builder streamListener(Http2Stream.Listener streamListener) {
+      this.streamListener = streamListener;
       return this;
     }
 
@@ -621,13 +630,13 @@ public final class Http2Connection implements Closeable {
 
           // Create a stream.
           final Http2Stream newStream = new Http2Stream(streamId, Http2Connection.this,
-              false, inFinished, headerBlock);
+              false, inFinished, headerBlock, streamListener);
           lastGoodStreamId = streamId;
           streams.put(streamId, newStream);
           executor.execute(new NamedRunnable("OkHttp %s stream %d", hostname, streamId) {
             @Override public void execute() {
               try {
-                listener.onStream(newStream);
+                connectionListener.onStream(newStream);
               } catch (IOException e) {
                 Platform.get().log(INFO, "FramedConnection.Listener failure for " + hostname, e);
                 try {
@@ -678,7 +687,7 @@ public final class Http2Connection implements Closeable {
         }
         executor.execute(new NamedRunnable("OkHttp %s settings", hostname) {
           @Override public void execute() {
-            listener.onSettings(Http2Connection.this);
+            connectionListener.onSettings(Http2Connection.this);
           }
         });
       }

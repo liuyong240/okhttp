@@ -67,7 +67,7 @@ public final class Http2Server extends Http2Connection.Listener {
         }
         Http2Connection connection = new Http2Connection.Builder(false)
             .socket(sslSocket)
-            .listener(this)
+            .connectionListener(this)
             .build();
         connection.start();
       } catch (IOException e) {

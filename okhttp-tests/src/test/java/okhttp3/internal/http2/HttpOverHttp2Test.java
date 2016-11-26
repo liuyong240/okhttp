@@ -21,6 +21,7 @@ import java.net.Authenticator;
 import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -67,6 +68,7 @@ import static okhttp3.TestUtil.defaultClient;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /** Test how SPDY interacts with HTTP/2 features. */
@@ -872,6 +874,54 @@ public final class HttpOverHttp2Test {
 
     assertEquals(0, server.takeRequest().getSequenceNumber());
     assertEquals(0, server.takeRequest().getSequenceNumber());
+  }
+
+  @Test public void noDataFramesSentOnNullRequestBody() throws Exception {
+    server.enqueue(new MockResponse()
+        .setBody("ABC"));
+
+    Request request = new Request.Builder()
+        .url(server.url("/"))
+        .method("DELETE", null)
+        .build();
+
+    Response response = client.newCall(request).execute();
+    assertEquals("ABC", response.body().string());
+
+    RecordedRequest recordedRequest = server.takeRequest();
+    assertTrue(recordedRequest.getChunkSizes().isEmpty());
+  }
+
+  @Test public void emptyDataFrameSentOnEmptyRequestBody() throws Exception {
+    server.enqueue(new MockResponse()
+        .setBody("ABC"));
+
+    Request request = new Request.Builder()
+        .url(server.url("/"))
+        .method("DELETE", Util.EMPTY_REQUEST)
+        .build();
+
+    Response response = client.newCall(request).execute();
+    assertEquals("ABC", response.body().string());
+
+    RecordedRequest recordedRequest = server.takeRequest();
+    assertEquals(Collections.singletonList(0), recordedRequest.getChunkSizes());
+  }
+
+  @Test public void dataFrameSizeMatchesRequestBodySize() throws Exception {
+    server.enqueue(new MockResponse()
+        .setBody("ABC"));
+
+    Request request = new Request.Builder()
+        .url(server.url("/"))
+        .method("DELETE", RequestBody.create(MediaType.parse("text/plain"), "123"))
+        .build();
+
+    Response response = client.newCall(request).execute();
+    assertEquals("ABC", response.body().string());
+
+    RecordedRequest recordedRequest = server.takeRequest();
+    assertEquals(Collections.singletonList(3), recordedRequest.getChunkSizes());
   }
 
   public Buffer gzip(String bytes) throws IOException {

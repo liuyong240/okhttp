@@ -83,7 +83,9 @@ public final class RecordedRequest {
 
   /**
    * Returns the sizes of the chunks of this request's body, or an empty list if the request's body
-   * was empty or unchunked.
+   * was empty or unchunked. For HTTP/2, this corresponds to the
+   * <a href="https://tools.ietf.org/html/rfc7540#section-6.1">data frames</a> sent as part of the
+   * request.
    */
   public List<Integer> getChunkSizes() {
     return chunkSizes;

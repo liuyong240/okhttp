@@ -50,6 +50,7 @@ public final class Http2Stream {
 
   final int id;
   final Http2Connection connection;
+  final Listener listener;
 
   /** Headers sent by the stream initiator. Immutable and non null. */
   private final List<Header> requestHeaders;
@@ -70,7 +71,7 @@ public final class Http2Stream {
   ErrorCode errorCode = null;
 
   Http2Stream(int id, Http2Connection connection, boolean outFinished, boolean inFinished,
-      List<Header> requestHeaders) {
+      List<Header> requestHeaders, Listener listener) {
     if (connection == null) throw new NullPointerException("connection == null");
     if (requestHeaders == null) throw new NullPointerException("requestHeaders == null");
     this.id = id;
@@ -83,6 +84,7 @@ public final class Http2Stream {
     this.source.finished = inFinished;
     this.sink.finished = outFinished;
     this.requestHeaders = requestHeaders;
+    this.listener = listener;
   }
 
   public int getId() {
@@ -269,6 +271,7 @@ public final class Http2Stream {
 
   void receiveData(BufferedSource in, int length) throws IOException {
     assert (!Thread.holdsLock(Http2Stream.this));
+    listener.onDataFrameReceived(this, length);
     this.source.receive(in, length);
   }
 
@@ -593,6 +596,14 @@ public final class Http2Stream {
 
     public void exitAndThrowIfTimedOut() throws IOException {
       if (exit()) throw newTimeoutException(null /* cause */);
+    }
+  }
+
+  /** Listener for HTTP/2 stream events. For now, this is intended to facilitate testing. */
+  public static class Listener {
+    static final Listener NOOP_LISTENER = new Listener();
+
+    public void onDataFrameReceived(Http2Stream stream, int length) {
     }
   }
 }

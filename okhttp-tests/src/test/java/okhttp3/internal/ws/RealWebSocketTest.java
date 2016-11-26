@@ -19,6 +19,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.net.ProtocolException;
 import java.util.Random;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import okhttp3.Protocol;
 import okhttp3.Request;
@@ -162,7 +163,7 @@ public final class RealWebSocketTest {
     server.listener.assertClosed(1000, "Hello!");
   }
 
-  @Test public void clientAndServerCloseClosesConnection() throws IOException {
+  @Test public void clientAndServerCloseClosesConnection() throws Exception {
     // Send close from both sides at the same time.
     server.webSocket.close(1000, "Hello!");
     client.processNextFrame(); // Read close, close connection close.
@@ -175,6 +176,8 @@ public final class RealWebSocketTest {
     server.listener.assertClosing(1000, "Hi!");
     client.listener.assertClosed(1000, "Hello!");
     server.listener.assertClosed(1000, "Hi!");
+
+    client.closeCalled.await(10, TimeUnit.SECONDS);
     assertTrue(client.closed);
 
     server.listener.assertExhausted(); // Client should not have sent second close.
@@ -296,6 +299,7 @@ public final class RealWebSocketTest {
     private RealWebSocket webSocket;
     boolean closeThrows;
     boolean closed;
+    final CountDownLatch closeCalled = new CountDownLatch(1);
 
     public TestStreams(boolean client, Pipe source, Pipe sink) {
       super(client, Okio.buffer(source.source()), Okio.buffer(sink.sink()));
@@ -325,6 +329,7 @@ public final class RealWebSocketTest {
         throw new AssertionError("Already closed");
       }
       closed = true;
+      closeCalled.countDown();
 
       if (closeThrows) {
         throw new RuntimeException("Oops!");

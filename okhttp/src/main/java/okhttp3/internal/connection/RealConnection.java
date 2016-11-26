@@ -208,7 +208,7 @@ public final class RealConnection extends Http2Connection.Listener implements Co
 
       Http2Connection http2Connection = new Http2Connection.Builder(true)
           .socket(socket, route.address().url().host(), source, sink)
-          .listener(this)
+          .connectionListener(this)
           .build();
       http2Connection.start();
 

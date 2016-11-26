@@ -619,7 +619,7 @@ public final class Http2ConnectionTest {
       }
     };
     Http2Connection connection = connectionBuilder(peer)
-        .listener(listener)
+        .connectionListener(listener)
         .build();
     connection.start(false);
 

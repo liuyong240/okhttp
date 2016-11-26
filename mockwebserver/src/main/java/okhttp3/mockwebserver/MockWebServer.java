@@ -33,8 +33,10 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -126,6 +128,7 @@ public final class MockWebServer implements TestRule, Closeable {
   private final Set<Http2Connection> openConnections =
       Collections.newSetFromMap(new ConcurrentHashMap<Http2Connection, Boolean>());
   private final AtomicInteger requestCount = new AtomicInteger();
+  private final RecordingHttp2StreamListener streamListener = new RecordingHttp2StreamListener();
   private long bodyLimit = Long.MAX_VALUE;
   private ServerSocketFactory serverSocketFactory = ServerSocketFactory.getDefault();
   private ServerSocket serverSocket;
@@ -451,7 +454,8 @@ public final class MockWebServer implements TestRule, Closeable {
           FramedSocketHandler framedSocketListener = new FramedSocketHandler(socket, protocol);
           Http2Connection connection = new Http2Connection.Builder(false)
               .socket(socket)
-              .listener(framedSocketListener)
+              .connectionListener(framedSocketListener)
+              .streamListener(streamListener)
               .build();
           connection.start();
           openConnections.add(connection);
@@ -900,8 +904,8 @@ public final class MockWebServer implements TestRule, Closeable {
       body.close();
 
       String requestLine = method + ' ' + path + " HTTP/1.1";
-      List<Integer> chunkSizes = Collections.emptyList(); // No chunked encoding for HTTP/2.
-      return new RecordedRequest(requestLine, httpHeaders.build(), chunkSizes, body.size(), body,
+      return new RecordedRequest(requestLine, httpHeaders.build(),
+          streamListener.removeRecordedDataFrameSizes(stream), body.size(), body,
           sequenceNumber.getAndIncrement(), socket);
     }
 
@@ -959,6 +963,30 @@ public final class MockWebServer implements TestRule, Closeable {
             stream.getConnection().pushStream(stream.getId(), pushedHeaders, hasBody);
         writeResponse(pushedStream, pushPromise.response());
       }
+    }
+  }
+
+  static final class RecordingHttp2StreamListener extends Http2Stream.Listener {
+    private final Map<Http2Stream, List<Integer>> dataFramesReceived = new LinkedHashMap<>();
+
+    @Override public synchronized void onDataFrameReceived(Http2Stream stream, int length) {
+      List<Integer> dataFrames = dataFramesReceived.get(stream);
+      if (dataFrames == null) {
+        dataFrames = new ArrayList<>();
+      }
+      dataFrames.add(length);
+      dataFramesReceived.put(stream, dataFrames);
+    }
+
+    /**
+     * Returns the sizes of the data frames received for a given HTTP/2 {@code stream}. If no data
+     * frames were received, an empty list is returned. Data frames are received on the HTTP/2
+     * reader thread, therefore the entire request should be read fully prior to calling this
+     * method.
+     */
+    synchronized List<Integer> removeRecordedDataFrameSizes(Http2Stream stream) {
+      List<Integer> dataFrames = dataFramesReceived.remove(stream);
+      return dataFrames == null ? Collections.<Integer>emptyList() : dataFrames;
     }
   }
 }
